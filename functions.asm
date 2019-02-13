@@ -57,7 +57,7 @@ prints:
 ; void printi(int eax)
 ; prints an integer
 
-printi:
+iprint:
     push    ebx         ; preserve ebx
     push    ecx         ; preserve ecx
     push    edx         ; preserve edx
@@ -76,7 +76,7 @@ nextdigit:
 
 pdigit:
     cmp     ecx, 0          ; if 0, we've reached the end of the number
-    jz      finishprinti    ; finish print if 0
+    jz      finishiprint    ; finish print if 0
 
     pop     eax             ; move on to next digit
     call    dprint          ; dprint prints from an int, no need to use address
@@ -84,17 +84,24 @@ pdigit:
     dec     ecx
     jmp     pdigit
 
-finishprinti:
+finishiprint:
+    pop     edx         ; pop preserved edx
+    pop     ecx         ; pop preserved ecx
+    pop     ebx         ; pop preserved ebx
+
+    ret
+
+; printi(int eax)
+; prints an integer
+
+printi:
+    call    iprint
+
     mov     eax, 0h     
     push    eax
     mov     eax, esp
     call    prints      ; print newline
     pop     eax
-
-    pop     edx         ; pop preserved edx
-    pop     ecx         ; pop preserved ecx
-    pop     ebx         ; pop preserved ebx
-
     ret
 
 ; void dprint(int eax)
