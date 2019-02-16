@@ -126,7 +126,7 @@ dprint:
     pop     eax         ; remove digit ascii from stack
     ret
 
-; void input(label eax, int ebx)
+; void input(string* eax, int ebx)
 ; gets input, writes to label at eax
 ; ebx is the amount of bytes to read
 

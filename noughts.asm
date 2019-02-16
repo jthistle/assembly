@@ -12,6 +12,8 @@ prompt2     db      "Enter place to play: ", 0h
 invalidmsg  db      "Invalid move", 0h
 winmsg      db      "You have won!", 0h
 losemsg     db      "The computer has won!", 0h
+drawmsg     db      "The game is a draw!", 0h
+playagain   db      "Play again? [y/n]: ", 0h
 newline     db      0Ah, 0h
 
 SECTION .bss
@@ -24,11 +26,15 @@ compsq:     resb    2           ; computer squares, in same format
 SECTION .text
 global  _start
 
-_start:
-    ;mov     word [usersq], 273        ; DEBUG only
-    ;mov     word [compsq], 72      ; DEBUG only
+restart:
+    mov     word [usersq], 0
+    mov     word [compsq], 0
+    jmp     firstturn
 
-.firstturn:
+_start:
+    nop
+
+firstturn:
     mov     eax, prompt1
     call    sprint
 
@@ -42,7 +48,7 @@ _start:
 
     mov     eax, badinput
     call    prints
-    jmp     .firstturn              ; user has entered invalid input, retry
+    jmp     firstturn               ; user has entered invalid input, retry
 
 fulluserturn:
     call    showgrid
@@ -65,7 +71,7 @@ fulluserturn:
     cmp     cl, 10
     jns     .badmove                 ; if choice not number (too high), ditto
 
-    ; TODO check move valid within game rules
+    ; check move valid within game rules
     mov     eax, ecx
     call    moveisvalid
     cmp     eax, 0
@@ -76,7 +82,7 @@ fulluserturn:
 
     call    checkwin
 
-    jmp     fulluserturn            ; DEBUG only for now
+    jmp     compturn            ; now it's the computer's go
 
 .badmove:
     mov     eax, invalidmsg
@@ -86,11 +92,330 @@ fulluserturn:
 
 compturn:
     mov     byte [turn], 1
+    mov     ecx, 1
 
-nextturn:
+.dwnextnum:                     ; direct win - check if comp can win in 1 move
+    ; first, check comp win
+    ; check if comp can actually play in square first
+    mov     eax, ecx
+    call    moveisvalid
+    cmp     eax, 0
+    jz      .dwfinishup          ; if can't play anyway, skip checks
+
+    mov     edx, 0
+    mov     dx, word [compsq]
+
+    mov     eax, ecx
+    call    getflag             ; eax now holds flag
+    or      edx, eax            ; temp add eax to edx to get compsq as if that flag had been added in edx
+
+    push    ecx
+    push    edx
+    mov     edx, esp            ; put pointer to temp compsq in edx
+    call    checkonesq          ; eax now holds 1 or 0 if this causes a win
+    pop     edx
+    pop     ecx
+
+    cmp     eax, 1
+    jz      .compplacesq
+
+.dwfinishup:
+    ; finish up, move to next num
+    inc     ecx
+    cmp     ecx, 10
+    jns     .blockuser     ; out of range, move on
+    jmp     .dwnextnum
+
+.blockuser:
+    mov     ecx, 1
+
+.bunextnum:
+    ; check user win
+    mov     eax, ecx
+    call    moveisvalid
+    cmp     eax, 0
+    jz      .bufinishup          ; if can't play anyway, skip checks
+
+    mov     edx, 0
+    mov     dx, word [usersq]
+    mov     eax, ecx
+    call    getflag
+    or      edx, eax
+
+    push    ecx
+    push    edx
+    mov     edx, esp            ; put pointer to temp compsq in edx
+    call    checkonesq          ; eax now holds 1 or 0 if this causes a win
+    pop     edx
+    pop     ecx
+
+    cmp     eax, 1
+    jz      .compplacesq
+
+.bufinishup:
+    ; finish up, move to next num
+    inc     ecx
+    cmp     ecx, 10
+    jns     .compfork     ; out of range, move on
+    jmp     .bunextnum
+
+.compfork:      ; try to create two opportunities to win
+    mov     edx, compsq
+    mov     ebx, usersq
+    call    findforks
+    cmp     eax, 0
+    jnz     .foundfork
+    jmp     .userfork
+
+.userfork:      ; try and block any user forks
+    mov     edx, usersq
+    mov     ebx, compsq
+    call    findforks
+    cmp     eax, 0
+    jnz     .foundfork
+    jmp     .checkcentre    ; move on to next check
+
+.foundfork:
+    mov     ecx, eax
+    jmp     .compplacesq
+
+.checkcentre:
+    mov     eax, 5
+    call    moveisvalid
+    mov     ecx, 5
+    cmp     eax, 1
+    jz      .compplacesq
+    jmp     .checkcorners
+
+.checkcorners:
+    mov     ebx, 0
+    mov     bx, word [usersq]   ; ebx now holds user square
+
+    mov     eax, 9
+    call    moveisvalid
+    cmp     eax, 1
+    mov     eax, 1
+    call    .cornervalid
+
+    mov     eax, 7
+    call    moveisvalid
+    cmp     eax, 1
+    mov     eax, 4
+    call    .cornervalid
+
+    mov     eax, 3
+    call    moveisvalid
+    cmp     eax, 1
+    mov     eax, 64
+    call    .cornervalid
+
+    mov     eax, 1
+    call    moveisvalid
+    cmp     eax, 1
+    mov     eax, 256
+    call    .cornervalid
+
+    jmp     .emptycorner     ; move on to next check
+
+.cornervalid:
+    jnz     .cornernotvalid     ; this will be zero if the move is valid
+    push    ebx
+    sub     ebx, eax
+    cmp     ebx, 0
+    pop     ebx
+    jz      .compplacesq
+    ret
+
+.cornernotvalid:
+    ret
+
+.emptycorner:           ; I could do this programmatically rather than hardcoded, but it's more complicated
+    mov     eax, 1
+    mov     ecx, 1
+    call    moveisvalid
+    cmp     eax, 1
+    jz      .compplacesq
+
+    mov     eax, 3
+    mov     ecx, 3
+    call    moveisvalid
+    cmp     eax, 1
+    jz      .compplacesq
+
+    mov     eax, 7
+    mov     ecx, 7
+    call    moveisvalid
+    cmp     eax, 1
+    jz      .compplacesq
+
+    mov     eax, 9
+    mov     ecx, 9
+    call    moveisvalid
+    cmp     eax, 1
+    jz      .compplacesq
+
+    jmp     .emptyside     ; move on to next check
+
+.emptyside:                 ; plays in the middle square
+    mov     ecx, 2
+
+.nextside:
+    mov     eax, ecx
+    call    moveisvalid
+    cmp     eax, 1
+    jz      .compplacesq
+
+    add     ecx, 2
+    cmp     ecx, 10
+    jns     .finishcompturn
+    jmp     .nextside
+
+.compplacesq:               ; places value in ecx
+    mov     eax, ecx
+    call    placesq
+    jmp     .finishcompturn
+
+.finishcompturn:
+    call    checkwin
+    jmp     fulluserturn
 
 finishup:
+    mov     eax, playagain
+    call    sprint
+    mov     eax, userinput
+    mov     ebx, 255
+    call    input
+
+    cmp     byte [userinput], 121
+    jz      restart
+
+    cmp     byte [userinput], 110
+    jz      endprogramme
+
+    mov     eax, badinput
+    call    prints
+    jmp     finishup 
+
+endprogramme:
     call    quit
+
+; findforks(int* edx, int* ebx)
+; finds forks in square at eax, provided ebx is the other square
+; returns where to play to create/prevent fork in eax as num 1-9. 0 if no forks
+
+findforks:
+    push    ecx
+    mov     ecx, 1
+
+.nextsq:
+    mov     eax, ecx
+    call    moveisvalid         ; this preserves edx and ebx anyway
+    cmp     eax, 0
+    jz      .nextsqfinishup     ; if can't play anyway, skip checks
+
+    mov     edi, 0
+    mov     di, word[edx]
+
+    mov     eax, ecx
+    call    getflag
+    or      edi, eax            ; now edi has the square with ecx played
+
+    push    ebx
+    push    edi
+    mov     eax, esp
+
+    call    checkisfork         ; ebx is already set as the second square
+    cmp     eax, 0
+    pop     edi
+    pop     ebx
+    jnz     .finishyesfork      ; if it's not zero, we've found a fork!
+
+.nextsqfinishup:
+    inc     ecx
+    cmp     ecx, 10
+    jns     .finishnofork       ; out of range, finish
+    jmp     .nextsq
+
+.finishyesfork:
+    mov     eax, ecx            ; ecx still holds the 'current' sq num we're on
+    pop     ecx
+    ret
+
+.finishnofork:
+    pop     ecx
+    mov     eax, 0
+    ret
+
+; checkisfork(int eax*, int* ebx)
+; check if the square in eax can be won in two ways
+; provided that ebx is the other square
+
+checkisfork:
+    push    ebx
+    push    ecx
+    push    edx
+    push    edi
+    push    esi             ; this will store how many ways we can win
+    mov     ecx, 1
+
+.nextnum:
+    push    eax
+    mov     eax, ecx
+    call    moveisvalid     ; if move is valid, we can skip this num and continue
+    cmp     eax, 0
+    pop     eax
+    jz      .nextnumfin
+
+    push    eax
+    mov     eax, ecx
+    call    getflag
+    mov     edx, eax        ; edx now has the flag for the num in ecx
+    pop     eax
+
+    push    eax             ; checkonesq has no protections, so push important stuff
+    push    ebx
+    push    ecx
+    push    esi
+
+    mov     edi, 0          ; we'll use edi to hold the eax grid with the edx flag played
+    mov     di, word [eax]
+    or      edi, edx        ; edi now has the grid with flag in edx played in it
+    push    edi
+    mov     edx, esp        ; checkonesq takes an address of the sq, so put edx on the stack
+    call    checkonesq
+    cmp     eax, 0          ; if eax is 1, we the square in edx is a winning square
+    pop     edi
+    
+    pop     esi
+    pop     ecx
+    pop     ebx
+    pop     eax
+    jz      .nextnumfin     ; we can't win by placing it there, continue
+
+    inc     esi             ; we CAN win. Inc win count
+    cmp     esi, 2          ; have we reached the required number of wins?
+    jz      .finishyes
+
+.nextnumfin:
+    inc     ecx
+    cmp     ecx, 10
+    jns     .finishno
+    jmp     .nextnum
+
+.finishyes:
+    mov     eax, 1
+    jmp     .finish
+
+.finishno:
+    mov     eax, 0
+
+.finish:
+    pop     esi
+    pop     edi
+    pop     edx
+    pop     ecx
+    pop     ebx
+    ret
 
 ; moveisvalid(int eax)
 ; takes move in eax as val 1-9
@@ -231,6 +556,12 @@ checkwin:
     push    ecx
     push    edx
     push    edi
+
+    mov     edx, 0
+    mov     dx, word [usersq]
+    or      dx, word [compsq]
+    cmp     edx, 511            ; 511 is a full grid
+    jz      endnowin            ; grid full, draw
 
     mov     edx, usersq         ; do user sq check
     call    checkonesq
@@ -388,6 +719,13 @@ endcompwin:
     call    showgrid
 
     mov     eax, losemsg
+    call    prints
+    jmp     endwinfin
+
+endnowin:
+    call    showgrid
+
+    mov     eax, drawmsg
     call    prints
     jmp     endwinfin
 
