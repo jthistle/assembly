@@ -195,7 +195,7 @@ pow:
 .next:
     cmp     ecx, 1
     jz      .fin        ; no more to do, finish
-    imul    edi         ; multiply eax by the original eax
+    mul     edi         ; multiply eax by the original eax
     dec     ecx         ; dec counter
     jmp     .next
 

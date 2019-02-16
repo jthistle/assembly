@@ -25,9 +25,8 @@ SECTION .text
 global  _start
 
 _start:
-    mov     word [usersq], 273        ; DEBUG only
-    mov     word [compsq], 72      ; DEBUG only
-    call    showgrid
+    ;mov     word [usersq], 273        ; DEBUG only
+    ;mov     word [compsq], 72      ; DEBUG only
 
 .firstturn:
     mov     eax, prompt1
@@ -37,7 +36,7 @@ _start:
     mov     ebx, 255
     call    input
     cmp     byte [userinput], 48    ; what number has the user entered? 0 or 1
-    jz      userturn
+    jz      fulluserturn
     cmp     byte [userinput], 49    ; is 1, computer's turn
     jz      compturn
 
@@ -45,7 +44,10 @@ _start:
     call    prints
     jmp     .firstturn              ; user has entered invalid input, retry
 
-userturn:
+fulluserturn:
+    call    showgrid
+
+.userturn:
     mov     byte [turn], 0
     mov     eax, prompt2
     call    sprint
@@ -59,23 +61,28 @@ userturn:
     mov     cl, byte [userinput]
     sub     cl, dl                  ; set ecx to square number chosen
     cmp     cl, 1
-    js      badmove                 ; if choice not number (too low), jump to bad move
-    cmp     cl, 9
-    jns     badmove                 ; if choice not number (too high), ditto
+    js      .badmove                 ; if choice not number (too low), jump to bad move
+    cmp     cl, 10
+    jns     .badmove                 ; if choice not number (too high), ditto
 
     ; TODO check move valid within game rules
     mov     eax, ecx
     call    moveisvalid
+    cmp     eax, 0
+    jz      .badmove
 
-    call    printi
+    mov     eax, ecx
+    call    placesq                 ; actually add the square
 
-    jmp     finishup            ; DEBUG only for now
+    call    checkwin
 
-badmove:
+    jmp     fulluserturn            ; DEBUG only for now
+
+.badmove:
     mov     eax, invalidmsg
     call    prints
 
-    jmp     userturn
+    jmp     .userturn
 
 compturn:
     mov     byte [turn], 1
@@ -95,10 +102,7 @@ moveisvalid:
     mov     edx, [usersq]
     or      edx, [compsq]           ; this gets a full list of occupied squares in ebx
 
-    sub     eax, 1
-    mov     ebx, eax
-    mov     eax, 2
-    call    pow                 ; get binary flag equivalent of move
+    call    getflag             ; get binary flag equivalent of move
 
     and     edx, eax            ; compare to see if flag is set
     cmp     edx, 0      
@@ -146,8 +150,9 @@ showgrid:
     cmp     ebx, 9
     jns     .finnextchar
 
-    mov     eax, 2                  ; no need to preserve eax, it only served to get the current byte from grid
-    call    pow                     ; ebx is still the number we want to use as index to get flag with
+    add     ebx, 1                  ; set ebx to a val 1-9 again
+    mov     eax, ebx                ; get flag takes argument in eax
+    call    getflag                 ; no need to preserve eax, it only served to get the current byte from grid
     mov     ebx, eax                ; ebx now holds flag value for this char
 
     mov     edx, [usersq]
@@ -184,4 +189,227 @@ showgrid:
     pop     ecx
     pop     ebx
     pop     eax
+    ret
+
+; placesq(int eax)
+; place an O (user) or X (comp) in square in eax, val 1-9
+; uses value in turn to work out what to add to
+
+placesq:
+    push    ebx
+    push    eax
+
+    call    getflag         ; eax now holds flag value
+
+    cmp     byte [turn], 0  ; check whose turn it is in order to place correct square
+    jz      .adduser
+    jmp     .addcomp
+
+.adduser:
+    or      word [usersq], ax
+    jmp     .fin
+
+.addcomp:
+    or      word [compsq], ax
+    jmp     .fin
+
+.fin:
+    pop     eax
+    pop     ebx
+    ret
+
+; checkwin()
+; checks the grids for a winning combo and ends game if found
+; win can be scored with:
+;   - three nums three apart e.g. 1,4,7
+;   - three consecutive nums e.g. 1,2,3
+;   - three numbers that are 1,5,9 or 3,5,7
+
+checkwin:
+    push    eax
+    push    ebx
+    push    ecx
+    push    edx
+    push    edi
+
+    mov     edx, usersq         ; do user sq check
+    call    checkonesq
+    cmp     eax, 1
+    jz      enduserwin
+
+    mov     edx, compsq         ; do comp sq check
+    call    checkonesq
+    cmp     eax, 1
+    jz      endcompwin
+
+    jmp     .finish
+
+.finish:
+    pop     edi
+    pop     edx
+    pop     ecx
+    pop     ebx
+    pop     eax
+    ret
+
+; checkonesq(int* edx)
+; checks for win in square at address edx
+; returns 1 or 0 in eax
+
+checkonesq:
+    mov     ecx, 1
+
+.nextsqv:                        ; check vertical matches
+    call    .checkvertical       ; do checks for start square ecx
+
+    inc     ecx
+    cmp     ecx, 4
+    jz      .checkonesqh    ; check if we've done all numbers, if so end this and move to horizontal checks
+    jmp     .nextsqv        ; move to the next base square
+
+.checkonesqh:               ; now horizontal checks
+    mov     ecx, 1
+
+.nextsqh:
+    call    .checkhorizontal    ; do checks for start square ecx
+
+    mov     ebx, 3
+    add     ecx, ebx
+    cmp     ecx, 10
+    jns     .checkonesqdiag ; check if we've done all numbers, if so end this sq check - TEMPDEBUG
+    jmp     .nextsqh        ; move to the next square on left side
+
+.checkonesqdiag:
+    call    .checkdiagonal  ; if diagonal exists, this will redirect to win
+    jmp     .onesqnowin
+
+; start check vertical
+
+.checkvertical:             ; ecx holds init number to check, must not be changed
+    mov     edi, 0          ; this holds the flag combo needed for a win
+    mov     ebx, ecx
+
+.nextonev:
+    mov     eax, ebx
+    call    getflag
+
+    add     edi, eax
+    add     ebx, 3              ; inc ebx by three to get next sq up
+    cmp     ebx, 10
+    jns     .fincheckvertical   ; out of range, finish
+    jmp     .nextonev
+
+.fincheckvertical:
+    mov     ebx, 0     
+    mov     bx, word [ edx ]    ; move sq at edx to bx
+    and     ebx, edi
+    cmp     ebx, edi
+    jz      .onesqwin       ; we have a win, finish all checks, otherwise continue
+    ret                     ; returns to .nextsqv
+    
+; end check vertical
+
+; start check horizontal
+
+.checkhorizontal:
+    mov     edi, 0          ; again, this holds the flag combo needed for a win
+    mov     ebx, ecx
+
+.nextoneh:
+    mov     eax, ebx
+    call    getflag
+
+    add     edi, eax
+    inc     ebx                 ; inc ebx to get next sq along
+    
+    push    ecx
+    add     ecx, 3
+    cmp     ebx, ecx
+    pop     ecx
+    jns     .fincheckhoriz      ; out of range, finish
+    jmp     .nextoneh
+
+.fincheckhoriz:
+    mov     ebx, 0     
+    mov     bx, word [ edx ]    ; move sq at edx to bx
+    and     ebx, edi
+    cmp     ebx, edi
+    jz      .onesqwin       ; we have a win, finish all checks, otherwise continue
+    ret                     ; returns to .nextsqh
+
+; end check horizontal
+
+; start check diagonal
+; simpler to do hardcoded combos
+
+.checkdiagonal:
+    mov     eax, 273        ; 1,5,9 combo
+    call    .againstgriddiag
+
+    mov     eax, 84         ; 3,5,7 combo
+    call    .againstgriddiag
+    ret
+
+.againstgriddiag:
+    mov     ebx, 0     
+    mov     bx, word [ edx ]    ; move sq at edx to bx
+    and     ebx, eax
+    cmp     ebx, eax
+    jz      .windiag
+    ret
+
+.windiag:
+    pop     eax         ; pop return pointer off so we return to calling function from onesqwin
+    jmp     .onesqwin
+
+; end check diagonal
+
+; win condition functions for checkonesq
+
+.onesqnowin:
+    mov     eax, 0
+    ret                     ; this will return to checkwin
+
+.onesqwin:                  ; this will be called inside a .checkx function
+    pop     eax             ; pop off return pointer so we'll return to checkwin
+    mov     eax, 1
+    ret
+
+; if win conditions are met, use one of these
+
+enduserwin:
+    call    showgrid
+
+    mov     eax, winmsg
+    call    prints
+    jmp     endwinfin
+    
+endcompwin:
+    call    showgrid
+
+    mov     eax, losemsg
+    call    prints
+    jmp     endwinfin
+
+endwinfin:
+    pop     edi
+    pop     edx
+    pop     ecx
+    pop     ebx
+    pop     eax
+    pop     eax         ; pop return pointer off stack
+    jmp     finishup
+
+; getflag(int eax)
+; gets a flag value from the number in eax
+; where eax is a num 1-9
+
+getflag:
+    push    ebx
+    mov     ebx, eax
+    sub     ebx, 1
+    mov     eax, 2
+    call    pow             ; now eax has the flag needed
+
+    pop     ebx
     ret
