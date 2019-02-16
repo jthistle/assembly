@@ -185,6 +185,7 @@ compturn:
     mov     ecx, 5
     cmp     eax, 1
     jz      .compplacesq
+
     jmp     .checkcorners
 
 .checkcorners:
@@ -192,24 +193,28 @@ compturn:
     mov     bx, word [usersq]   ; ebx now holds user square
 
     mov     eax, 9
+    mov     ecx, eax
     call    moveisvalid
     cmp     eax, 1
     mov     eax, 1
     call    .cornervalid
 
     mov     eax, 7
+    mov     ecx, eax
     call    moveisvalid
     cmp     eax, 1
     mov     eax, 4
     call    .cornervalid
 
     mov     eax, 3
+    mov     ecx, eax
     call    moveisvalid
     cmp     eax, 1
     mov     eax, 64
     call    .cornervalid
 
     mov     eax, 1
+    mov     ecx, eax
     call    moveisvalid
     cmp     eax, 1
     mov     eax, 256
